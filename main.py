@@ -1,61 +1,80 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-import os
 from io import BytesIO
-from PIL import Image
-import cv2
-import numpy as np
+import db
+import pymongo
+from typing import Dict, Any
+import re
+from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+mydb = client["mydatabase"]
+mycol = mydb["users"]
+
+dblist = client.list_database_names()
+if "mydatabase" in dblist:
+    print("The database exists.")
+else:
+    print("DB doesnt exist")
 
 app = FastAPI()
 
-# Dummy GAN function that processes the image and returns a video
-def gan_model_process(image: Image.Image):
-    # Here, you would use your trained GAN to process the image
-    # Currently, we'll simulate by converting the image to a video
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # You can specify the frontend domain like ["http://localhost:3000"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    # Convert the PIL Image to a format compatible with OpenCV (for video generation)
-    image_np = np.array(image)
+class User(BaseModel):
+    username: str
+    first_name: str
+    last_name: str
+    email: str
+    is_locked: bool
+    usertype: str
+    
 
-    # Create a VideoWriter object
-    height, width, layers = image_np.shape
-    video_path = "output_video.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Video codec for mp4
-    video = cv2.VideoWriter(video_path, fourcc, 1.0, (width, height))
-
-    # Simulate a video with the same image repeated for 10 frames
-    for _ in range(10):
-        video.write(image_np)
-
-    video.release()  # Finalize the video file
-    return video_path
-
-users = ['nguyen', 'quoc', 'an']
+def is_valid_email(email: str) -> bool:
+    return re.match(r"[^@]+@[^@]+\.[^@]+", email)
 
 @app.get("/")
-def helloWorld():
-    return{'Hello':'World'}
+def getRoot():
+    return{1:"heyheyhey"}
 
-@app.post("/users")
-def createUser(user: str):
-    users.append(user)
-    return users
+@app.get("/users")
+def getAllUsers():
+    return mycol.find()
 
-@app.get("/users/{user_id}")
-def getUserByID(user_id: int):
-    return users[user_id]
+@app.get("/users/{username}")
+def getUserByUsername(username):
+    query = {"username": username}
+    result = mycol.find(query)
+    if not result:
+        raise HTTPException(status_code=404, detail="User does not exist")
+    return {"username": username}
 
+@app.post("/register")
+def registerUser(user: User):
+    uniqueUserCheck = mycol.find_one({"username": user.username})
+    if uniqueUserCheck:
+        raise HTTPException(status=409, detail="User already exists")
+        
+    result = mycol.insert_one({
+            "username": user.username,
+            "email": user.email,
+            "usertype": user.usertype
+        })
+    if result.inserted_id:
+        return{"message": "Registered successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Insert failed")
 
-# API endpoint to receive the image and process it
-@app.post("/process-image/")
-async def process_image(file: UploadFile = File(...)):
-    # Read the uploaded image file
-    image = Image.open(BytesIO(await file.read()))
-
-    # Pass the image to your GAN processing function
-    video_path = gan_model_process(image)
-
-    # Return the video file as response
-    return FileResponse(video_path, media_type="video/mp4", filename="output_video.mp4")
-
-# To run the server:
-# uvicorn filename:app --reload
+@app.delete("/delete")
+def deleteUserByID(user: User):
+    if mycol.find({"username":user.username}).count()==0:
+        raise HTTPException(status_code=404, detail="User not found")
+    result = mycol.delete_one({"username": user.username})
+    
+    
