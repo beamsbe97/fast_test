@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h2>Upload an Image</h2>
+  <form action="/users" method="post" enctype="multipart/form-data">
+    <input type="text" name="username"><br><br>
+    <button type="submit">Create user</button>
+  </form>
+
+  <script>
+    document.querySelector('form').onsubmit = async function(event) {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      
+      const response = await fetch('/process-image/', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const videoBlob = await response.blob();
+      const videoUrl = URL.createObjectURL(videoBlob);
+      document.getElementById('videoSource').src = videoUrl;
+      document.getElementById('videoResult').load();
+    };
+  </script>
+</body>
+</html>
